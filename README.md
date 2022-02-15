@@ -52,3 +52,4 @@ optional arguments: <br />
                         Buffer size (1000 sequences by default). <br />
   --accept_non_alpha    Accept non alphabetic symbols in sequences. <br />
 
+Licenced under the [BSD 3-Clause License](LICENSE).
