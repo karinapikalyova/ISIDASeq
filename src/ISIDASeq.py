@@ -4,6 +4,8 @@ from typing import TextIO
 import os
 import pickle
 import numpy as np
+import copy
+from tqdm import tqdm
 
 from collections import defaultdict
 from operator import itemgetter
@@ -29,8 +31,8 @@ class UnknownNucleotideException(Exception):
     def __init__(self, message):
         self.__message = message
         super().__init__(self.__message)
-
-
+        
+        
 class Sequence:
     def __init__(self, sequence: str, accept_non_alpha: bool = False):
         self.sequence = sequence.strip().upper()
@@ -150,7 +152,7 @@ class Sequence:
                     raise NotSeenSymbolException(f'{char} symbol is not in the given header!')
                 self._embedding[i] += self.hivb[char]
 
-    def seq2kmers(self, min_length: int, max_length: int, shift: int = 1, normalize: bool = False,
+    def seq2kmers(self, min_length: int, max_length: int, shift: int = 1, contig: bool = False, normalize: bool = False,
                   binarized: bool = False) -> defaultdict:
         """
         Function for generation of simple k-mers
@@ -171,10 +173,15 @@ class Sequence:
                 for x in range(0, self.length - length + 1, shift):
                     kmers[self.sequence[x:x + length]] += 1
                     n += 1
-            if normalize and not binarized:
-                for x in range(0, self.length - length + 1, shift):
-                    kmers[self.sequence[x:x + length]] /= n
-                    kmers[self.sequence[x:x + length]] = round(kmers[self.sequence[x:x + length]], 3)
+            #kmers_init = copy.deepcopy(kmers)
+            if contig: 
+                for k, v in kmers.copy().items(): 
+                    if ',' in k: 
+                        kmers.pop(k)
+            kmers_sum = sum(kmers.values())
+            if normalize and not binarized: 
+                for k, v in kmers.items(): 
+                    kmers[k] /= kmers_sum
         return kmers
 
     def seq2pckmers(self, min_length: int, max_length: int, length_step: int = 1, level: int = 2,
@@ -204,9 +211,8 @@ class Sequence:
                         kmers[self.sequence[x:x + length]] += 1
                         n += 2
                 if normalize and not binarized:
-                    for x in range(length - 1, self.length - length + 1, shift):
-                        kmers[self.sequence[x + 1 - length:x + 1]] = round(kmers[self.sequence[x + 1 - length:x + 1]] / n, 3)
-                        kmers[self.sequence[x:x + length]] = round(kmers[self.sequence[x:x + length]] / n, 3)
+                    for k, v in kmers.items():
+                        kmers[k] /= sum(kmers.values())
         elif level == 2:
             for length in range(min_length, max_length + 1, length_step):
                 n = 0
@@ -218,8 +224,8 @@ class Sequence:
                         kmers[self.sequence[x + 1 - length:x + length]] += 1
                         n += 1
                 if normalize and not binarized:
-                    for x in range(length - 1, self.length - length + 1, shift):
-                        kmers[self.sequence[x + 1 - length:x + length]] = round(kmers[self.sequence[x + 1 - length:x + length]] / n, 3)
+                    for k, v in kmers.items():
+                        kmers[k] /= sum(kmers.values())
         elif level == 12:
             for length in range(min_length, max_length + 1, length_step):
                 n = 0
@@ -235,10 +241,8 @@ class Sequence:
                         kmers[self.sequence[x + 1 - length:x + length]] += 1
                         n += 3
                 if normalize and not binarized:
-                    for x in range(length - 1, self.length - length + 1, shift):
-                        kmers[self.sequence[x + 1 - length:x + 1]] = round(kmers[self.sequence[x + 1 - length:x + 1]] / n, 3)
-                        kmers[self.sequence[x:x + length]] = round(kmers[self.sequence[x:x + length]] / n, 3)
-                        kmers[self.sequence[x + 1 - length:x + length]] = round(kmers[self.sequence[x + 1 - length:x + length]] / n, 3)
+                    for k, v in kmers.items():
+                        kmers[k] /= sum(kmers.values())
 
         return kmers
 
@@ -418,7 +422,7 @@ def postprocess_onehot_header(kmers: list, mode: int = 0, seq_length: int = 0) -
 
 def main(input_file: TextIOWrapper, output_file: str, header_file: TextIOWrapper, types: list, min_lengths: list,
          max_lengths: list, shifts: list, steps: list, levels: list, revcomps: list, flavors: list,
-         file_format: str = 'svm', buffer_size: int = 1000, accept_non_alpha: bool = False):
+         file_format: str = 'svm', buffer_size: int = 1000, accept_non_alpha: bool = False, contig: bool = False):
     kmers = []
     if header_file:
         print('Read the header file..')
@@ -434,7 +438,7 @@ def main(input_file: TextIOWrapper, output_file: str, header_file: TextIOWrapper
             kmers_set = set()
             seq_length = 0
             if types[0] == 7:
-                for i, sequence in enumerate(input_file, 1):
+                for i, sequence in tqdm(enumerate(input_file, 1)):
                     try:
                         sequence_obj = Sequence(sequence, accept_non_alpha=True)
                     except EmptySequenceError:
@@ -470,9 +474,9 @@ def main(input_file: TextIOWrapper, output_file: str, header_file: TextIOWrapper
         file_name = input_file.name
         input_file.close()
         input_file = open(file_name)
-        for i, sequence in enumerate(input_file, 1):
-            if i % buffer_size == 0:
-                print(f'{i} line passed..')
+        for i, sequence in tqdm(enumerate(input_file, 1)):
+            #if i % buffer_size == 0:
+                #print(f'{i} line passed..')
             try:
                 sequence = Sequence(sequence, accept_non_alpha=True)
             except EmptySequenceError:
@@ -497,9 +501,9 @@ def main(input_file: TextIOWrapper, output_file: str, header_file: TextIOWrapper
         if not header_file:
             kmers = set()
         print('Run fragmentation..')
-        for i, sequence in enumerate(input_file, 1):
-            if i % buffer_size == 0:
-                print(f'{i} sequences passed..')
+        for i, sequence in tqdm(enumerate(input_file, 1)):
+            #if i % buffer_size == 0:
+                #print(f'{i} sequences passed..')
             try:
                 sequence_obj = Sequence(sequence, accept_non_alpha=accept_non_alpha)
             except EmptySequenceError:
@@ -517,7 +521,7 @@ def main(input_file: TextIOWrapper, output_file: str, header_file: TextIOWrapper
                 sequence_copy = sequence_obj.copy()
                 sequence_copy.colour(flavor)
                 if frag_type in [1, 3, 5]:
-                    seq_kmers = sequence_copy.seq2kmers(min_length, max_length, shift, normalize=(frag_type == 3),
+                    seq_kmers = sequence_copy.seq2kmers(min_length, max_length, shift, contig, normalize=(frag_type == 3),
                                                         binarized=(frag_type == 5))
                 else:
                     seq_kmers = sequence_copy.seq2pckmers(min_length, max_length, steps_copy.pop(0), levels_copy.pop(0),
@@ -613,6 +617,8 @@ if __name__ == "__main__":
                         help='Buffer size (1000 sequences by default).')
     parser.add_argument('--accept_non_alpha', dest='acc_non_alpha', action="store_true",
                         help='Accept non alphabetic symbols in sequences.')
+    parser.add_argument('-contig', dest='contig', action="store_true",
+                        help='Generate k-mers for each contig separately, then concatenate k-mer counts.')
 
     args = parser.parse_args()
     if not args.step:
@@ -642,5 +648,8 @@ if __name__ == "__main__":
 
     print_arguments(args)
 
-    main(args.input_file, args.output, args.hdr, args.type, args.min_length, args.max_length, args.shift, args.step,
-         args.level, args.revcomp, args.flavor, args.format, args.buffer_size, args.acc_non_alpha)
+    print(args.input_file, args.output, args.hdr, args.type, args.min_length, args.max_length, args.shift, args.contig,
+          args.step,
+          args.level, args.revcomp, args.flavor, args.format, args.buffer_size, args.acc_non_alpha)
+
+    main(args.input_file, args.output, args.hdr, args.type, args.min_length, args.max_length, args.shift, args.step, args.level, args.revcomp, args.flavor, args.format, args.buffer_size, args.acc_non_alpha, args.contig)
